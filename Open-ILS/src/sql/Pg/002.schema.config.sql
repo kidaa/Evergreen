@@ -91,7 +91,7 @@ CREATE TRIGGER no_overlapping_deps
     BEFORE INSERT OR UPDATE ON config.db_patch_dependencies
     FOR EACH ROW EXECUTE PROCEDURE evergreen.array_overlap_check ('deprecates');
 
-INSERT INTO config.upgrade_log (version, applied_to) VALUES ('0922', :eg_version); -- jeffdavis/kmlussier/dyrcona
+INSERT INTO config.upgrade_log (version, applied_to) VALUES ('0941', :eg_version); -- yboston/dyrcona
 
 CREATE TABLE config.bib_source (
 	id		SERIAL	PRIMARY KEY,
@@ -792,7 +792,11 @@ CREATE TABLE config.record_attr_definition (
     fixed_field TEXT, -- should exist in config.marc21_ff_pos_map.fixed_field
 
 -- For phys-char fields
-    phys_char_sf    INT REFERENCES config.marc21_physical_characteristic_subfield_map (id)
+    phys_char_sf    INT REFERENCES config.marc21_physical_characteristic_subfield_map (id),
+
+-- Source of vocabulary terms for this record attribute;
+-- typically will be a URI referring to a SKOS vocabulary
+    vocabulary  TEXT
 );
 
 CREATE TABLE config.record_attr_index_norm_map (
@@ -811,7 +815,9 @@ CREATE TABLE config.coded_value_map (
     description     TEXT,
     opac_visible    BOOL    NOT NULL DEFAULT TRUE, -- For TPac selectors
     search_label    TEXT,
-    is_simple       BOOL    NOT NULL DEFAULT FALSE
+    is_simple       BOOL    NOT NULL DEFAULT FALSE,
+    concept_uri     TEXT    -- URI expressing the SKOS concept that the
+                            -- coded value represents
 );
 
 CREATE VIEW config.language_map AS SELECT code, value FROM config.coded_value_map WHERE ctype = 'item_lang';
@@ -960,11 +966,11 @@ in actor.org_unit_setting, allowing for mistakes to be undone.
 This is NOT meant to be an auditor, but rather an undo/redo.
 $$;
 
-CREATE OR REPLACE FUNCTION limit_oustl() RETURNS TRIGGER AS $oustl_limit$
+CREATE OR REPLACE FUNCTION evergreen.limit_oustl() RETURNS TRIGGER AS $oustl_limit$
     BEGIN
         -- Only keeps the most recent five settings changes.
-        DELETE FROM config.org_unit_setting_type_log WHERE field_name = NEW.field_name AND date_applied NOT IN 
-        (SELECT date_applied FROM config.org_unit_setting_type_log WHERE field_name = NEW.field_name ORDER BY date_applied DESC LIMIT 4);
+        DELETE FROM config.org_unit_setting_type_log WHERE field_name = NEW.field_name AND org = NEW.org AND date_applied NOT IN 
+        (SELECT date_applied FROM config.org_unit_setting_type_log WHERE field_name = NEW.field_name AND org = NEW.org ORDER BY date_applied DESC LIMIT 4);
         
         IF (TG_OP = 'UPDATE') THEN
             RETURN NEW;
@@ -1081,5 +1087,109 @@ CREATE TABLE config.z3950_index_field_map (
             evergreen.z3950_attr_name_is_valid(z3950_attr_type)
     )
 );
+
+CREATE TABLE config.marc_format (
+    id                  SERIAL PRIMARY KEY,
+    code                TEXT NOT NULL,
+    name                TEXT NOT NULL
+);
+COMMENT ON TABLE config.marc_format IS $$
+List of MARC formats supported by this Evergreen
+database. This exists primarily as a hook for future
+support of UNIMARC, though whether that will ever
+happen remains to be seen.
+$$;
+
+CREATE TYPE config.marc_record_type AS ENUM ('biblio', 'authority', 'serial');
+
+CREATE TABLE config.marc_field (
+    id                  SERIAL PRIMARY KEY,
+    marc_format         INTEGER NOT NULL
+                        REFERENCES config.marc_format (id) DEFERRABLE INITIALLY DEFERRED,
+    marc_record_type    config.marc_record_type NOT NULL,
+    tag                 CHAR(3) NOT NULL,
+    name                TEXT,
+    description         TEXT,
+    fixed_field         BOOLEAN,
+    repeatable          BOOLEAN,
+    mandatory           BOOLEAN,
+    hidden              BOOLEAN,
+    owner               INTEGER -- REFERENCES actor.org_unit (id)
+                        -- if the owner is null, the data about the field is
+                        -- assumed to come from the controlling MARC standard
+);
+
+COMMENT ON TABLE config.marc_field IS $$
+This table stores a list of MARC fields recognized by the Evergreen
+instance.  Note that we're not aiming for completely generic ISO2709
+support: we're assuming things like three characters for a tag,
+one-character subfield labels, two indicators per variable data field,
+and the like, all of which are technically specializations of ISO2709.
+
+Of particular significance is the owner column; if it's set to a null
+value, the field definition is assumed to come from a national
+standards body; if it's set to a non-null value, the field definition
+is an OU-level addition to or override of the standard.
+$$;
+
+CREATE INDEX config_marc_field_tag_idx ON config.marc_field (tag);
+CREATE INDEX config_marc_field_owner_idx ON config.marc_field (owner);
+
+CREATE UNIQUE INDEX config_standard_marc_tags_are_unique
+    ON config.marc_field(marc_format, marc_record_type, tag)
+    WHERE owner IS NULL;
+ALTER TABLE config.marc_field
+    ADD CONSTRAINT config_standard_marc_tags_are_fully_specified
+    CHECK ((owner IS NOT NULL) OR
+           (
+                owner IS NULL AND
+                repeatable IS NOT NULL AND
+                mandatory IS NOT NULL AND
+                hidden IS NOT NULL
+           )
+          );
+
+CREATE TABLE config.marc_subfield (
+    id                  SERIAL PRIMARY KEY,
+    marc_format         INTEGER NOT NULL
+                        REFERENCES config.marc_format (id) DEFERRABLE INITIALLY DEFERRED,
+    marc_record_type    config.marc_record_type NOT NULL,
+    tag                 CHAR(3) NOT NULL,
+    code                CHAR(1) NOT NULL,
+    description         TEXT,
+    repeatable          BOOLEAN,
+    mandatory           BOOLEAN,
+    hidden              BOOLEAN,
+    value_ctype         TEXT
+                        REFERENCES config.record_attr_definition (name)
+                            DEFERRABLE INITIALLY DEFERRED,
+    owner               INTEGER -- REFERENCES actor.org_unit (id)
+                        -- if the owner is null, the data about the subfield is
+                        -- assumed to come from the controlling MARC standard
+);
+
+COMMENT ON TABLE config.marc_subfield IS $$
+This table stores the list of subfields recognized by this Evergreen
+instance.  As with config.marc_field, of particular significance is the
+owner column; if it's set to a null value, the subfield definition is
+assumed to come from a national standards body; if it's set to a non-null
+value, the subfield definition is an OU-level addition to or override
+of the standard.
+$$;
+
+CREATE INDEX config_marc_subfield_tag_code_idx ON config.marc_subfield (tag, code);
+CREATE UNIQUE INDEX config_standard_marc_subfields_are_unique
+    ON config.marc_subfield(marc_format, marc_record_type, tag, code)
+    WHERE owner IS NULL;
+ALTER TABLE config.marc_subfield
+    ADD CONSTRAINT config_standard_marc_subfields_are_fully_specified
+    CHECK ((owner IS NOT NULL) OR
+           (
+                owner IS NULL AND
+                repeatable IS NOT NULL AND
+                mandatory IS NOT NULL AND
+                hidden IS NOT NULL
+           )
+          );
 
 COMMIT;

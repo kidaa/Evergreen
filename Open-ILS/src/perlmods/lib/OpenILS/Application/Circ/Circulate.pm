@@ -209,13 +209,6 @@ sub run_method {
             }
         }
     }
-            
-    
-
-    # --------------------------------------------------------------------------
-    # Go ahead and load the script runner to make sure we have all 
-    # of the objects we need
-    # --------------------------------------------------------------------------
 
     if ($circulator->use_booking) {
         $circulator->is_res_checkin($circulator->is_checkin(1))
@@ -295,8 +288,6 @@ sub run_method {
     }
     
     $conn->respond_complete(circ_events($circulator));
-
-    $circulator->script_runner->cleanup if $circulator->script_runner;
 
     return undef if $circulator->bail_out;
 
@@ -400,7 +391,6 @@ my @AUTOLOAD_FIELDS = qw/
     patron
     patron_id
     patron_barcode
-    script_runner
     volume
     title
     is_renewal
@@ -955,7 +945,6 @@ my $LEGACY_CIRC_EVENT_MAP = {
 # ---------------------------------------------------------------------
 sub run_patron_permit_scripts {
     my $self        = shift;
-    my $runner      = $self->script_runner;
     my $patronid    = $self->patron->id;
 
     my @allevents; 
@@ -1177,7 +1166,6 @@ sub get_max_fine_amount {
 sub run_copy_permit_scripts {
     my $self = shift;
     my $copy = $self->copy || return;
-    my $runner = $self->script_runner;
 
     my @allevents;
 
@@ -1720,7 +1708,6 @@ sub run_checkout_scripts {
     my $nobail = shift;
 
     my $evt;
-    my $runner = $self->script_runner;
 
     my $duration;
     my $recurring;
@@ -2140,10 +2127,6 @@ sub make_precat_copy {
         $self->push_events($self->editor->event);
         return;
     }   
-
-    # this is a little bit of a hack, but we need to 
-    # get the copy into the script runner
-    $self->script_runner->insert("environment.copy", $copy, 1) if $self->script_runner;
 }
 
 
@@ -2384,9 +2367,8 @@ sub do_checkin {
     }
 
     if( $self->circ ) {
-        $self->checkin_handle_circ;
+        $self->checkin_handle_circ_start;
         return if $self->bail_out;
-        $self->checkin_changed(1);
 
         if (!$dont_change_lost_zero) {
             # if this circ is LOST and we are configured to generate overdue
@@ -2409,6 +2391,11 @@ sub do_checkin {
             # handle fines for this circ, including overdue gen if needed
             $self->handle_fines;
         }
+
+        $self->checkin_handle_circ_finish;
+        return if $self->bail_out;
+        $self->checkin_changed(1);
+
     } elsif( $self->transit ) {
         my $hold_transit = $self->process_received_transit;
         $self->checkin_changed(1);
@@ -2635,7 +2622,7 @@ sub finish_fines_and_voiding {
     my $note = 'System: Amnesty Checkin' if $self->void_overdues;
 
     my $evt = $CC->void_or_zero_overdues(
-        $self->editor, $self->circ, {backdate => $self->backdate, note => $note});
+        $self->editor, $self->circ, {backdate => $self->void_overdues ? undef : $self->backdate, note => $note});
 
     return $self->bail_on_events($evt) if $evt;
 
@@ -3241,7 +3228,7 @@ sub handle_fines {
    return undef;
 }
 
-sub checkin_handle_circ {
+sub checkin_handle_circ_start {
    my $self = shift;
    my $circ = $self->circ;
    my $copy = $self->copy;
@@ -3289,9 +3276,15 @@ sub checkin_handle_circ {
         $self->update_copy;
     }
 
+    return undef;
+}
+
+sub checkin_handle_circ_finish {
+    my $self = shift;
+    my $circ = $self->circ;
 
     # see if there are any fines owed on this circ.  if not, close it
-    ($obt) = $U->fetch_mbts($circ->id, $self->editor);
+    my ($obt) = $U->fetch_mbts($circ->id, $self->editor);
     $circ->xact_finish('now') if( $obt and $obt->balance_owed == 0 );
 
     $logger->debug("circulator: ".$obt->balance_owed." is owed on this circulation");
@@ -3480,12 +3473,14 @@ sub checkin_handle_backdate {
     $new_date->set_minute($original_date->minute());
     if ($new_date >= DateTime->now) {
         # We can't say that the item will be checked in later...so assume someone's clock is wrong instead.
-        $bd = undef;
+        # $self->backdate() autoload handler ignores undef values.  
+        # Clear the backdate manually.
+        $logger->info("circulator: ignoring future backdate: $new_date");
+        delete $self->{backdate};
     } else {
-        $bd = cleanse_ISO8601($new_date->datetime());
+        $self->backdate(cleanse_ISO8601($new_date->datetime()));
     }
 
-    $self->backdate($bd);
     return undef;
 }
 

@@ -1,7 +1,9 @@
 /**
- * Simple directive for rending the HTML view of a bib record.
+ * Simple directive for rending the HTML view of a MARC record.
  *
  * <eg-record-html record-id="myRecordIdScopeVariable"></eg-record-id>
+ * OR
+ * <eg-record-html marc-xml="myMarcXmlVariable"></eg-record-html>
  *
  * The value of myRecordIdScopeVariable is watched internally and the 
  * record is updated to match.
@@ -11,7 +13,10 @@ angular.module('egCoreMod')
 .directive('egRecordHtml', function() {
     return {
         restrict : 'AE',
-        scope : {recordId : '='},
+        scope : {
+            recordId : '=',
+            marcXml  : '@',
+        },
         link : function(scope, element, attrs) {
             scope.element = angular.element(element);
 
@@ -28,7 +33,9 @@ angular.module('egCoreMod')
                     egCore.net.request(
                         'open-ils.search',
                         'open-ils.search.biblio.record.html',
-                        $scope.recordId
+                        $scope.recordId,
+                        false,
+                        $scope.marcXml
                     ).then(function(html) {
                         if (!html) return;
 
@@ -53,8 +60,15 @@ angular.module('egCoreMod')
                         }
                     }
                 );
+                $scope.$watch('marcXml', 
+                    function(newVal, oldVal) {
+                        if (newVal && newVal !== oldVal) {
+                            loadRecordHtml();
+                        }
+                    }
+                );
 
-                if ($scope.recordId) 
+                if ($scope.recordId || $scope.marcXml) 
                     loadRecordHtml();
             }
         ]
@@ -70,7 +84,8 @@ angular.module('egCoreMod')
         restrict : 'AE',
         scope : {
             recordId : '=',
-            record : '='
+            record : '=',
+            noMarcLink : '@'
         },
         templateUrl : './cat/share/t_record_summary',
         controller : 
@@ -100,6 +115,24 @@ angular.module('egCoreMod')
 
                 if ($scope.recordId) 
                     loadRecord();
+
+                $scope.toggle_expand_summary = function() {
+                    if ($scope.collapseRecordSummary) {
+                        $scope.collapseRecordSummary = false;
+                        egCore.hatch.removeItem('eg.cat.record.summary.collapse');
+                    } else {
+                        $scope.collapseRecordSummary = true;
+                        egCore.hatch.setItem('eg.cat.record.summary.collapse', true);
+                    }
+                }
+            
+                $scope.collapse_summary = function() {
+                    return $scope.collapseRecordSummary;
+                }
+            
+                egCore.hatch.getItem('eg.cat.record.summary.collapse')
+                .then(function(val) {$scope.collapseRecordSummary = Boolean(val)});
+
             }
         ]
     }

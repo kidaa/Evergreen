@@ -22,6 +22,8 @@ angular.module('egPatronApp', ['ngRoute', 'ui.bootstrap',
         // specific settings from within their respective controllers
         egCore.env.classLoaders.aous = function() {
             return egCore.org.settings([
+                'circ.do_not_tally_claims_returned',
+                'circ.tally_lost',
                 'circ.obscure_dob',
                 'ui.circ.show_billing_tab_on_bills',
                 'circ.patron_expires_soon_warning',
@@ -483,6 +485,13 @@ function($q , $timeout , $location , egCore,  egUser , $locale) {
                 stats.checkouts.out = Number(stats.checkouts.out);
                 stats.checkouts.total_out = 
                     stats.checkouts.out + stats.checkouts.overdue;
+
+                if (!egCore.env.aous['circ.do_not_tally_claims_returned'])
+                    stats.checkouts.total_out += stats.checkouts.claims_returned;
+
+                if (egCore.env.aous['circ.tally_lost'])
+                    stats.checkouts.total_out += stats.checkouts.lost
+
                 return stats;
             }
         );
@@ -602,6 +611,17 @@ function($scope,  $q,  $location , $filter,  egCore,  egUser,  patronSvc) {
         return $q.when();
     }
 
+    $scope._show_dob = {};
+    $scope.show_dob = function (val) {
+        if ($scope.patron()) {
+            if (typeof val != 'undefined') $scope._show_dob[$scope.patron().id()] = val;
+            return $scope._show_dob[$scope.patron().id()];
+        }
+        return !egCore.env.aous['circ.obscure_dob'];
+    }
+        
+    $scope.obscure_dob = function() { return egCore.env.aous['circ.obscure_dob']; }
+    $scope.now_show_dob = function() { return egCore.env.aous['circ.obscure_dob'] ? $scope.show_dob() : true; }
     $scope.patron = function() { return patronSvc.current }
     $scope.patron_stats = function() { return patronSvc.patron_stats }
     $scope.summary_stat_cats = function() { return patronSvc.summary_stat_cats }

@@ -60,6 +60,7 @@
      * narrower than the default Bootstrapp container gutters.
      */
     width: 95%;
+    padding-top: 70px;
 }
 
 
@@ -394,6 +395,12 @@ table.list tr.selected td { /* deprecated? */
 }
 .flex-2 { /* meh, convience */
   flex: 2;
+}
+.flex-3 { /* meh, convience */
+  flex: 3;
+}
+.flex-4 { /* meh, convience */
+  flex: 4;
 }
 
 /* TODO: match media size to Bootstrap "md" col resizing */

@@ -294,6 +294,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			<field reporter:label="Private Note" name="priv_note" reporter:datatype="text"/>
 			<field reporter:label="OPAC Visible" name="opac_visible" reporter:datatype="bool"/>
 			<field reporter:label="Overlay Match ID" name="internal_id" reporter:datatype="int"/>
+			<field reporter:label="Stat Cat Data" name="stat_cat_data" reporter:datatype="text"/>
 		</fields>
 		<links>
 			<link field="import_error" reltype="has_a" key="code" map="" class="vie"/>
@@ -346,6 +347,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			<field reporter:label="OPAC Visible" name="opac_visible" reporter:datatype="text"/>
 			<field reporter:label="Copy Number" name="copy_number" reporter:datatype="text"/>
 			<field reporter:label="Overlay Match ID" name="internal_id" reporter:datatype="text"/>
+			<field reporter:label="Stat Cat Data" name="stat_cat_data" reporter:datatype="text"/>
 		</fields>
 		<links>
 			<link field="owner" reltype="has_a" key="id" map="" class="aou"/>
@@ -782,6 +784,77 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
         </permacrud>
 	</class>
 
+	<class id="cmrcfmt" controller="open-ils.cstore open-ils.pcrud" oils_obj:fieldmapper="config::marc_format" oils_persist:tablename="config.marc_format" reporter:label="MARC Formats" oils_persist:field_safe="true">
+		<fields oils_persist:primary="id">
+			<field reporter:label="ID"   name="id" reporter:datatype="id"/>
+			<field reporter:label="Code" name="code" reporter:datatype="text"/>
+			<field reporter:label="Name" name="name" reporter:datatype="text" oils_persist:i18n="true"/>
+        </fields>
+        <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
+            <actions>
+                <create permission="ADMIN_TAG_TABLE" global_required="true"/>
+                <retrieve/>
+                <update permission="ADMIN_TAG_TABLE" global_required="true"/>
+                <delete permission="ADMIN_TAG_TABLE" global_required="true"/>
+            </actions>
+        </permacrud>
+	</class>
+
+	<class id="cmrcfld" controller="open-ils.cstore open-ils.pcrud" oils_obj:fieldmapper="config::marc_field" oils_persist:tablename="config.marc_field" reporter:label="MARC Fields" oils_persist:field_safe="true">
+		<fields oils_persist:primary="id">
+			<field reporter:label="ID"   name="id" reporter:datatype="id"/>
+			<field reporter:label="MARC Format" name="marc_format" reporter:datatype="link" />
+			<field reporter:label="MARC Record Type" name="marc_record_type" reporter:datatype="text" />
+			<field reporter:label="MARC Tag" name="tag" reporter:datatype="text" />
+			<field reporter:label="Name" name="name" reporter:datatype="text" oils_persist:i18n="true"/>
+			<field reporter:label="Description" name="description" reporter:datatype="text" oils_persist:i18n="true"/>
+			<field reporter:label="Fixed Field?" name="fixed_field" reporter:datatype="bool"/>
+			<field reporter:label="Repeatabl?" name="repeatable" reporter:datatype="bool"/>
+			<field reporter:label="Mandatory?" name="mandatory" reporter:datatype="bool"/>
+			<field reporter:label="Hidden?" name="hidden" reporter:datatype="bool"/>
+			<field reporter:label="Owner" name="owner" reporter:datatype="link"/>
+        </fields>
+		<links>
+			<link field="marc_format" reltype="has_a" key="id" map="" class="cmrcfmt"/>
+			<link field="owner" reltype="has_a" key="id" map="" class="aou"/>
+        </links>
+        <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
+            <actions>
+                <create permission="ADMIN_TAG_TABLE" context_field="owner"/>
+                <retrieve/>
+                <update permission="ADMIN_TAG_TABLE" context_field="owner"/>
+                <delete permission="ADMIN_TAG_TABLE" context_field="owner"/>
+            </actions>
+        </permacrud>
+	</class>
+
+	<class id="cmrcsubfld" controller="open-ils.cstore open-ils.pcrud" oils_obj:fieldmapper="config::marc_subfield" oils_persist:tablename="config.marc_subfield" reporter:label="MARC Subfields" oils_persist:subfield_safe="true">
+		<fields oils_persist:primary="id">
+			<field reporter:label="ID"   name="id" reporter:datatype="id"/>
+			<field reporter:label="MARC Format" name="marc_format" reporter:datatype="link" />
+			<field reporter:label="MARC Record Type" name="marc_record_type" reporter:datatype="text" />
+			<field reporter:label="MARC Tag" name="tag" reporter:datatype="text" />
+			<field reporter:label="MARC Subfield" name="code" reporter:datatype="text" />
+			<field reporter:label="Description" name="description" reporter:datatype="text" oils_persist:i18n="true"/>
+			<field reporter:label="Repeatable?" name="repeatable" reporter:datatype="bool"/>
+			<field reporter:label="Mandatory?" name="mandatory" reporter:datatype="bool"/>
+			<field reporter:label="Hidden?" name="hidden" reporter:datatype="bool"/>
+			<field reporter:label="Owner" name="owner" reporter:datatype="link"/>
+        </fields>
+		<links>
+			<link field="marc_format" reltype="has_a" key="id" map="" class="cmrcfmt"/>
+			<link field="owner" reltype="has_a" key="id" map="" class="aou"/>
+        </links>
+        <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
+            <actions>
+                <create permission="ADMIN_TAG_TABLE" context_field="owner"/>
+                <retrieve/>
+                <update permission="ADMIN_TAG_TABLE" context_field="owner"/>
+                <delete permission="ADMIN_TAG_TABLE" context_field="owner"/>
+            </actions>
+        </permacrud>
+	</class>
+
 	<class id="crad" controller="open-ils.cstore open-ils.pcrud" oils_obj:fieldmapper="config::record_attr_definition" oils_persist:tablename="config.record_attr_definition" reporter:label="SVF Record Attribute Defintion" oils_persist:field_safe="true">
 		<fields oils_persist:primary="name">
 			<field reporter:label="Name" name="name" reporter:datatype="id" reporter:selector="label"  oils_obj:required="true"/>
@@ -800,6 +873,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			<field reporter:label="String Length" name="string_len" reporter:datatype="int"/>
 			<field reporter:label="Fixed Field" name="fixed_field" reporter:datatype="text"/>
 			<field reporter:label="Physical Characteristic" name="phys_char_sf" reporter:datatype="text"/>
+			<field reporter:label="Vocabulary URI" name="vocabulary" reporter:datatype="text"/>
 			<field reporter:label="Normalizers" name="normalizers" reporter:datatype="link" oils_persist:virtual="true"/>
 		</fields>
 		<links>
@@ -967,6 +1041,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			<field reporter:label="OPAC Visible" name="opac_visible" reporter:datatype="bool"/>
 			<field reporter:label="Search Label" name="search_label" reporter:datatype="text" oils_persist:i18n="true"/>
             <field reporter:label="Is Simple Selector" name="is_simple" reporter:datatype="bool"/>
+            <field reporter:label="Concept URI" name="concept_uri" reporter:datatype="text"/>
             <field reporter:label="Composite Definition" name="composite_def" oils_persist:virtual="true" reporter:datatype="link"/>
 		</fields>
 		<links>
@@ -1435,6 +1510,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			<field reporter:label="Code" name="code" reporter:selector="name" reporter:datatype="id"/>
 			<field reporter:label="Label" name="name" reporter:datatype="text" oils_persist:i18n="true"/>
 			<field reporter:label="Prorate?" name="prorate" reporter:datatype="bool"/>
+			<field reporter:label="Blanket?" name="blanket" reporter:datatype="bool"/>
 		</fields>
 		<links/>
         <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
@@ -3622,7 +3698,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 			</actions>
 		</permacrud>
 	</class>
-	<class id="map" controller="open-ils.cstore" oils_obj:fieldmapper="money::account_adjustment" oils_persist:tablename="money.account_adjustment" reporter:label="Account Adjustment">
+	<class id="maa" controller="open-ils.cstore" oils_obj:fieldmapper="money::account_adjustment" oils_persist:tablename="money.account_adjustment" reporter:label="Account Adjustment">
 		<fields oils_persist:primary="id" oils_persist:sequence="money.payment_id_seq">
 			<field name="accepting_usr" reporter:datatype="link"/>
 			<field name="amount" reporter:datatype="money" />
@@ -6959,7 +7035,7 @@ SELECT  usr,
 			<link field="work_payment" reltype="might_have" key="id" map="" class="mwp"/>
 			<link field="forgive_payment" reltype="might_have" key="id" map="" class="mfp"/>
 			<link field="goods_payment" reltype="might_have" key="id" map="" class="mgp"/>
-			<link field="account_adjustment" reltype="might_have" key="id" map="" class="map"/>
+			<link field="account_adjustment" reltype="might_have" key="id" map="" class="maa"/>
 			<link field="xact" reltype="has_a" key="id" map="" class="mbt"/>
 		</links>
         <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
@@ -6997,7 +7073,7 @@ SELECT  usr,
 			<link field="work_payment" reltype="might_have" key="id" map="" class="mwp"/>
 			<link field="forgive_payment" reltype="might_have" key="id" map="" class="mfp"/>
 			<link field="goods_payment" reltype="might_have" key="id" map="" class="mgp"/>
-			<link field="account_adjustment" reltype="might_have" key="id" map="" class="mvp"/>
+			<link field="account_adjustment" reltype="might_have" key="id" map="" class="maa"/>
 			<link field="xact" reltype="has_a" key="id" map="" class="mbt"/>
 			<link field="accepting_usr" reltype="has_a" key="id" map="" class="au"/>
 		</links>
@@ -7022,7 +7098,7 @@ SELECT  usr,
 			<link field="forgive_payment" reltype="might_have" key="id" map="" class="mfp"/>
 			<link field="goods_payment" reltype="might_have" key="id" map="" class="mgp"/>
 			<link field="credit_payment" reltype="might_have" key="id" map="" class="mcrp"/>
-			<link field="account_adjustment" reltype="might_have" key="id" map="" class="mvp"/>
+			<link field="account_adjustment" reltype="might_have" key="id" map="" class="maa"/>
 			<link field="xact" reltype="has_a" key="id" map="" class="mbt"/>
 		</links>
 	</class>
@@ -7202,11 +7278,13 @@ SELECT  usr,
 			<field reporter:label="Voiding Staff Member" name="voider" reporter:datatype="link"/>
 			<field reporter:label="Transaction" name="xact" reporter:datatype="link"/>
 			<field reporter:label="Type" name="btype" reporter:datatype="link"/>
+			<field reporter:label="Adjustments" name="adjustments" oils_persist:virtual="true" reporter:datatype="link"/>
 		</fields>
 		<links>
 			<link field="xact" reltype="has_a" key="id" map="" class="mbt"/>
 			<link field="voider" reltype="has_a" key="id" map="" class="au"/>
 			<link field="btype" reltype="has_a" key="id" map="" class="cbt"/>
+			<link field="adjustments" reltype="has_many" key="billing" map="" class="maa"/>
 		</links>
         <permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
             <actions>
@@ -9073,7 +9151,7 @@ SELECT  usr,
 		<permacrud xmlns="http://open-ils.org/spec/opensrf/IDL/permacrud/v1">
 			<actions>
 				<create permission="ADMIN_ACQ_DISTRIB_FORMULA" context_field="owner"/>
-				<retrieve permission="ADMIN_ACQ_DISTRIB_FORMULA" context_field="owner"/>
+				<retrieve permission="CREATE_PURCHASE_ORDER ADMIN_ACQ_DISTRIB_FORMULA" context_field="owner"/>
 				<update permission="ADMIN_ACQ_DISTRIB_FORMULA" context_field="owner"/>
 				<delete permission="ADMIN_ACQ_DISTRIB_FORMULA" context_field="owner"/>
 			</actions>

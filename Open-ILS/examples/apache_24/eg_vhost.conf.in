@@ -52,6 +52,12 @@ OSRFTranslatorConfig @sysconfdir@/opensrf_core.xml
     Require all granted 
 </Location>
 
+# Lock clearing cache down to STAFF_LOGIN
+<Location /opac/extras/ac/clearcache/>
+    PerlAccessHandler OpenILS::WWW::AccessHandler
+    PerlSetVar OILSAccessHandlerPermission "STAFF_LOGIN"
+</Location>
+
 # Autosuggest for searches
 <Location /opac/extras/autosuggest>
     SetHandler perl-script
@@ -271,15 +277,6 @@ Options -Indexes
 # ----------------------------------------------------------------------------------
 <LocationMatch .*/myopac.xml>
     SSLRequireSSL
-</LocationMatch>
-
-<LocationMatch /opac/extras/>
-    SSILegacyExprParser on
-    # Force to en-US for now to satisfy bbags.xml
-    SetEnv locale en-US
-    Options +Includes
-    AddOutputFilter INCLUDES .xml
-    AddType application/xhtml+xml .xml
 </LocationMatch>
 
 RewriteCond %{QUERY_STRING} locale=([^&]*)
@@ -529,21 +526,6 @@ RewriteRule .? - [E=locale:%{HTTP:Accept-Language}]
     Options +ExecCGI
     PerlSendHeader On
 </Location>
-
-# ----------------------------------------------------------------------------------
-# Selfcheck interface
-# ----------------------------------------------------------------------------------
-<LocationMatch .*/selfcheck.xml>
-    AuthType Basic
-    AuthName "Self-check Login"
-    PerlOptions +GlobalRequest
-    PerlSetVar OILSProxyPermissions "STAFF_LOGIN"
-    PerlAuthenHandler OpenILS::WWW::Proxy::Authen
-    Require valid-user
-    Options +ExecCGI
-    PerlSendHeader On
-</LocationMatch>
-
 
 # ----------------------------------------------------------------------------------
 # Reports GUI

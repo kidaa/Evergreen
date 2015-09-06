@@ -1,6 +1,54 @@
-<div class="strong-text-2">[% l('Record Summary') %]</div>
+<div class="strong-text-2">
+  <div class="flex-row" style="justify-content: space-between">
+    <div class="flex-cell">[% l('Record Summary') %]</div>
+    <div ng-if="!noMarcLink" class="flex-cell">
+      <a target="_self" 
+        href="[% ctx.base_path %]/staff/cat/catalog/record/{{record.id()}}/marc_html">
+        (MARC)
+      </a>
+    </div>
+    <div class="flex-3">
+      <!-- padding -->
+    </div>
+    <div class="flex-cell">
+      <a class="pull-right" href ng-click="toggle_expand_summary()"
+        title="[% l('Collapse Record Summary Display') %]"
+        ng-hide="collapse_summary()">
+        <span class="glyphicon glyphicon-resize-small"></span>
+      </a>
+      <a class="pull-right" href ng-click="toggle_expand_summary()"
+        title="[% l('Expand Record Summary Display') %]"
+        ng-show="collapse_summary()">
+        <span class="glyphicon glyphicon-resize-full"></span>
+      </a>
+    </div>
+  </div>
+</div>
 
-<div class="flex-container-striped flex-container-bordered">
+<div class="flex-container-striped flex-container-bordered" ng-show="collapse_summary()">
+  <div class="flex-row">
+    <div class="flex-cell strong-text">[% l('Title:') %]</div>
+    <div class="flex-cell flex-2">
+      <a target="_self" 
+        href="[% ctx.base_path %]/staff/cat/catalog/record/{{record.id()}}">
+        {{record.simple_record().title()}}
+      </a>
+    </div>
+
+    <div class="flex-cell strong-text">[% l('Author:') %]</div>
+    <div class="flex-cell flex-2">{{record.simple_record().author()}}</div>
+
+    <div class="flex-cell strong-text">[% l('Pub Date:') %]</div>
+    <div class="flex-cell">
+      {{record.simple_record().pubdate()}}
+    </div>
+
+    <div class="flex-cell strong-text">[% l('Database ID:') %]</div>
+    <div class="flex-cell">{{record.id()}}</div>
+  </div><!-- flex-row -->
+</div>
+
+<div class="flex-container-striped flex-container-bordered" ng-hide="collapse_summary()">
   <div class="flex-row">
     <div class="flex-cell strong-text">[% l('Title:') %]</div>
     <div class="flex-cell flex-2">

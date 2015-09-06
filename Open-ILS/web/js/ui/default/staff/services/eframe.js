@@ -14,20 +14,30 @@ angular.module('egCoreMod')
             // optional hash of functions which augment or override 
             // the stock xulG functions defined below.
             handlers : '=',
+            frame : '=',
 
             // called after onload of each new iframe page
             onchange : '=',
+            saveSpace : '@',
         },
 
         templateUrl : './share/t_eframe',
+
+        link: function (scope, element, attrs) {
+            element.find('iframe').on(
+                'load',
+                function() {scope.egEmbedFrameLoader(this)}
+            );
+        },
 
         controller : 
                    ['$scope','$window','$location','$q','$timeout','egCore',
             function($scope , $window , $location , $q , $timeout , egCore) {
 
-            // Set the iframe height to just under the window height.
+            $scope.save_space = $scope.saveSpace ? $scope.saveSpace : 300;
+            // Set the initial iframe height to just under the window height.
             // leave room for the navbar, padding, margins, etc.
-            $scope.height = $window.outerHeight - 300;
+            $scope.height = $window.outerHeight - $scope.save_space;
 
             // browser client doesn't use cookies, so we don't load the
             // (at the time of writing, quite limited) angular.cookies
@@ -62,33 +72,70 @@ angular.module('egCoreMod')
             // for porting dojo, etc. apps to angular apps and should
             // eventually go away.
             // NOTE: catalog integration is not a stop-gap
-            $window.egEmbedFrameLoader = function(iframe) {
 
-                var page = iframe.contentWindow.location.href;
+            $scope.egEmbedFrameLoader = function(iframe) {
+
+                $scope.frame = {dom:iframe};
+                $scope.iframe = iframe;
+
+                // Reset the iframe height to the final content height.
+                if ($scope.height < $scope.iframe.contentWindow.document.body.scrollHeight)
+                    $scope.height = $scope.iframe.contentWindow.document.body.scrollHeight;
+
+                var page = $scope.iframe.contentWindow.location.href;
                 console.debug('egEmbedFrameLoader(): ' + page);
 
                 // reload ifram page w/o reloading the entire UI
                 $scope.reload = function() {
-                    iframe.contentWindow.location.replace(
-                        iframe.contentWindow.location);
+                    $scope.iframe.contentWindow.location.replace(
+                        $scope.iframe.contentWindow.location);
                 }
 
                 // tell the iframe'd window its inside the staff client
-                iframe.contentWindow.IAMXUL = true;
+                $scope.iframe.contentWindow.IAMXUL = true;
 
                 // also tell it it's inside the browser client, which 
                 // may be needed in a few special cases.
-                iframe.contentWindow.IAMBROWSER /* hear me roar */ = true; 
+                $scope.iframe.contentWindow.IAMBROWSER /* hear me roar */ = true; 
 
                 // XUL has a dump() function which is occasinally called 
                 // from embedded browsers.
-                iframe.contentWindow.dump = function(msg) {
+                $scope.iframe.contentWindow.dump = function(msg) {
                     console.debug('egEmbedFrame:dump(): ' + msg);
                 }
 
+                // Adjust the height again if the iframe loads the openils.Util Dojo module
+                $timeout(function () {
+                    if ($scope.iframe.contentWindow.openils && $scope.iframe.contentWindow.openils.Util) {
+
+                        // HACK! for patron reg page
+                        var e = $scope.iframe.contentWindow.document.getElementById('myForm');
+                        var extra = 50;
+                        
+                        // HACK! for vandelay
+                        if (!e) {
+                            e = $scope.iframe.contentWindow.document.getElementById('vl-body-wrapper');
+                            extra = 50;
+                        }
+
+                        if (!e) {
+                            e = $scope.iframe.contentWindow.document.body;
+                            extra = 0;
+                        }
+
+                        if ($scope.height < e.scrollHeight + extra) {
+                            $scope.iframe.contentWindow.openils.Util.addOnLoad( function() {
+                                var old_height = $scope.height;
+                                $scope.height = e.scrollHeight + extra;
+                                $scope.$apply();
+                            });
+                        }
+                    }
+                });
+
                 // define a few commonly used stock xulG handlers. 
                 
-                iframe.contentWindow.xulG = {
+                $scope.iframe.contentWindow.xulG = {
                     // patron search
                     spawn_search : function(search) {
                         open_tab('/circ/patron/search?search=' 
@@ -197,7 +244,7 @@ angular.module('egCoreMod')
                 if ($scope.handlers) {
                     $scope.handlers.reload = $scope.reload;
                     angular.forEach($scope.handlers, function(val, key) {
-                        iframe.contentWindow.xulG[key] = val;
+                        $scope.iframe.contentWindow.xulG[key] = val;
                     });
                 }
 

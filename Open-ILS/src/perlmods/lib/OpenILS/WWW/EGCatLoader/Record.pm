@@ -272,8 +272,8 @@ sub mk_copy_query {
         }
     );
     push(@{$query->{order_by}},
-        { class => "acp", field => 'status',
-          transform => 'evergreen.rank_cp_status'
+        { class => "acp", field => 'id',
+          transform => 'evergreen.rank_cp'
         }
     );
 
@@ -574,7 +574,10 @@ sub added_content_stage2 {
             }
         }
         # To avoid a lot of hanging connections.
-        $content->{request}->shutdown(2) if ($content->{request});
+        if ($content->{request}) {
+            $content->{request}->shutdown(2);
+            $content->{request}->close();
+        } 
     }
 }
 

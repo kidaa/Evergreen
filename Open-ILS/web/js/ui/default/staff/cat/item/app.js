@@ -5,6 +5,12 @@
 angular.module('egItemStatus', 
     ['ngRoute', 'ui.bootstrap', 'egCoreMod', 'egUiMod', 'egGridMod'])
 
+.filter('boolText', function(){
+    return function (v) {
+        return v == 't';
+    }
+})
+
 .config(function($routeProvider, $locationProvider, $compileProvider) {
     $locationProvider.html5Mode(true);
     $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|blob):/); // grid export
@@ -13,6 +19,13 @@ angular.module('egItemStatus',
 
     // search page shows the list view by default
     $routeProvider.when('/cat/item/search', {
+        templateUrl: './cat/item/t_list',
+        controller: 'ListCtrl',
+        resolve : resolver
+    });
+
+    // search page shows the list view by default
+    $routeProvider.when('/cat/item/search/:idList', {
         templateUrl: './cat/item/t_list',
         controller: 'ListCtrl',
         resolve : resolver
@@ -126,8 +139,14 @@ function($scope , $location , egCore , egGridDataProvider , itemSvc) {
  * List view - grid stuff
  */
 .controller('ListCtrl', 
-       ['$scope','$q','$location','$timeout','egCore','egGridDataProvider','itemSvc',
-function($scope , $q , $location , $timeout , egCore , egGridDataProvider , itemSvc) {
+       ['$scope','$q','$routeParams','$location','$timeout','egCore','egGridDataProvider','itemSvc',
+function($scope , $q , $routeParams , $location , $timeout , egCore , egGridDataProvider , itemSvc) {
+    var copyId = [];
+    var cp_list = $routeParams.idList;
+    if (cp_list) {
+        copyId = cp_list.split(',');
+    }
+
     $scope.context.page = 'list';
 
     /*
@@ -202,6 +221,14 @@ function($scope , $q , $location , $timeout , egCore , egGridDataProvider , item
         var item = copyGrid.selectedItems()[0];
         if (item) 
             $location.path('/cat/item/' + item.id + '/triggered_events');
+    }
+
+    if (copyId.length > 0) {
+        itemSvc.fetch(null,copyId).then(
+            function() {
+                copyGrid.refresh();
+            }
+        );
     }
 
 }])

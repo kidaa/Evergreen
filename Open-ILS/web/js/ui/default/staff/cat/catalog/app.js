@@ -48,6 +48,36 @@ angular.module('egCatalogApp', ['ui.bootstrap','ngRoute','egCoreMod','egGridMod'
         resolve : resolver
     });
 
+    $routeProvider.when('/cat/catalog/batchEdit', {
+        templateUrl: './cat/catalog/t_batchedit',
+        controller: 'BatchEditCtrl',
+        resolve : resolver
+    });
+
+    $routeProvider.when('/cat/catalog/batchEdit/:container_type/:container_id', {
+        templateUrl: './cat/catalog/t_batchedit',
+        controller: 'BatchEditCtrl',
+        resolve : resolver
+    });
+
+    $routeProvider.when('/cat/catalog/vandelay', {
+        templateUrl: './cat/catalog/t_vandelay',
+        controller: 'VandelayCtrl',
+        resolve : resolver
+    });
+
+    $routeProvider.when('/cat/catalog/verifyURLs', {
+        templateUrl: './cat/catalog/t_verifyurls',
+        controller: 'URLVerifyCtrl',
+        resolve : resolver
+    });
+
+    $routeProvider.when('/cat/catalog/manageAuthorities', {
+        templateUrl: './cat/catalog/t_manageauthorities',
+        controller: 'ManageAuthoritiesCtrl',
+        resolve : resolver
+    });
+
     $routeProvider.otherwise({redirectTo : '/cat/catalog/index'});
 })
 
@@ -117,13 +147,43 @@ function($scope , $routeParams , $location , $q , egCore ) {
 }])
 
 .controller('CatalogCtrl',
-       ['$scope','$routeParams','$location','$q','egCore','egHolds',
-        'egGridDataProvider','egHoldGridActions',
-function($scope , $routeParams , $location , $q , egCore , egHolds, 
-         egGridDataProvider , egHoldGridActions) {
+       ['$scope','$routeParams','$location','$window','$q','egCore','egHolds','egCirc',
+        'egGridDataProvider','egHoldGridActions','$timeout','holdingsSvc',
+function($scope , $routeParams , $location , $window , $q , egCore , egHolds , egCirc, 
+         egGridDataProvider , egHoldGridActions , $timeout , holdingsSvc) {
 
     // set record ID on page load if available...
     $scope.record_id = $routeParams.record_id;
+
+    if ($routeParams.record_id) $scope.from_route = true;
+    else $scope.from_route = false;
+
+    // will hold a ref to the opac iframe
+    $scope.opac_iframe = null;
+    $scope.parts_iframe = null;
+
+    $scope.in_opac_call = false;
+    $scope.opac_call = function (opac_frame_function, force_opac_tab) {
+        if ($scope.opac_iframe) {
+            if (force_opac_tab) $scope.record_tab = 'catalog';
+            $scope.in_opac_call = true;
+            $scope.opac_iframe.dom.contentWindow[opac_frame_function]();
+        }
+    }
+
+    $scope.stop_unload = false;
+    $scope.$watch('stop_unload',
+        function(newVal, oldVal) {
+            if (newVal && newVal != oldVal && $scope.opac_iframe) {
+                $($scope.opac_iframe.dom.contentWindow).on('beforeunload', function(){
+                    return 'There is unsaved data in this record.'
+                });
+            } else {
+                if ($scope.opac_iframe)
+                    $($scope.opac_iframe.dom.contentWindow).off('beforeunload');
+            }
+        }
+    );
 
     // Set the "last bib" cookie, if we have that
     if ($scope.record_id)
@@ -141,31 +201,205 @@ function($scope , $routeParams , $location , $q , egCore , egHolds,
         if (match) {
             $scope.record_id = match[1];
             egCore.hatch.setLocalItem("eg.cat.last_record_retrieved", $scope.record_id);
-
-            // force the record_id to show up in the page.  
-            // not sure why a $digest isn't occuring here.
-            try { $scope.$apply() } catch(E) {}
+            $scope.holdings_record_id_changed($scope.record_id);
+            init_parts_url();
         } else {
             delete $scope.record_id;
+            $scope.from_route = false;
         }
 
-        if ($scope.record_id) {
-            var default_tab = egCore.hatch.getLocalItem( 'eg.cat.default_record_tab' );
-            tab = $routeParams.record_tab || default_tab || 'catalog';
+        // child scope is executing this function, so our digest doesn't fire ... thus,
+        $scope.$apply();
+
+        if (!$scope.in_opac_call) {
+            if ($scope.record_id) {
+                $scope.default_tab = egCore.hatch.getLocalItem( 'eg.cat.default_record_tab' );
+                tab = $routeParams.record_tab || $scope.default_tab || 'catalog';
+            } else {
+                tab = $routeParams.record_tab || 'catalog';
+            }
+            $scope.set_record_tab(tab);
         } else {
-            tab = $routeParams.record_tab || 'catalog';
+            $scope.in_opac_call = false;
         }
-        $scope.set_record_tab(tab);
     }
 
     // xulG catalog handlers
     $scope.handlers = { }
 
     // ------------------------------------------------------------------
+    // Holdings
+
+    $scope.holdingsGridControls = {};
+    $scope.holdingsGridDataProvider = egGridDataProvider.instance({
+        get : function(offset, count) {
+            return this.arrayNotifier(holdingsSvc.copies, offset, count);
+        }
+    });
+
+    // refresh the list of holdings when the record_id is changed.
+    $scope.holdings_record_id_changed = function(id) {
+        if ($scope.record_id != id) $scope.record_id = id;
+        console.log('record id changed to ' + id + ', loading new holdings');
+        holdingsSvc.fetch({
+            rid : $scope.record_id,
+            org : $scope.holdings_ou,
+            copy: $scope.holdings_show_copies,
+            vol : $scope.holdings_show_vols,
+            empty: $scope.holdings_show_empty
+        }).then(function() {
+            $scope.holdingsGridDataProvider.refresh();
+        });
+    }
+
+    // refresh the list of holdings when the filter lib is changed.
+    $scope.holdings_ou = egCore.org.get(egCore.auth.user().ws_ou());
+    $scope.holdings_ou_changed = function(org) {
+        $scope.holdings_ou = org;
+        holdingsSvc.fetch({
+            rid : $scope.record_id,
+            org : $scope.holdings_ou,
+            copy: $scope.holdings_show_copies,
+            vol : $scope.holdings_show_vols,
+            empty: $scope.holdings_show_empty
+        }).then(function() {
+            $scope.holdingsGridDataProvider.refresh();
+        });
+    }
+
+    $scope.holdings_cb_changed = function(cb,newVal,norefresh) {
+        $scope[cb] = newVal;
+        egCore.hatch.setItem('cat.' + cb, newVal);
+        if (!norefresh) holdingsSvc.fetch({
+            rid : $scope.record_id,
+            org : $scope.holdings_ou,
+            copy: $scope.holdings_show_copies,
+            vol : $scope.holdings_show_vols,
+            empty: $scope.holdings_show_empty
+        }).then(function() {
+            $scope.holdingsGridDataProvider.refresh();
+        });
+    }
+
+    egCore.hatch.getItem('cat.holdings_show_vols').then(function(x){
+        if (typeof x ==  'undefined') x = true;
+        $scope.holdings_cb_changed('holdings_show_vols',x,true);
+        $('#holdings_show_vols').prop('checked', x);
+    }).then(function(){
+        egCore.hatch.getItem('cat.holdings_show_copies').then(function(x){
+            if (typeof x ==  'undefined') x = true;
+            $scope.holdings_cb_changed('holdings_show_copies',x,true);
+            $('#holdings_show_copies').prop('checked', x);
+        }).then(function(){
+            egCore.hatch.getItem('cat.holdings_show_empty').then(function(x){
+                if (typeof x ==  'undefined') x = true;
+                $scope.holdings_cb_changed('holdings_show_empty',x);
+                $('#holdings_show_empty').prop('checked', x);
+            })
+        })
+    });
+
+    $scope.holdings_checkbox_handler = function (item) {
+        $scope.holdings_cb_changed(item.checkbox,item.checked);
+    }
+
+    function gatherSelectedHoldingsIds () {
+        var cp_id_list = [];
+        angular.forEach(
+            $scope.holdingsGridControls.selectedItems(),
+            function (item) { cp_id_list = cp_id_list.concat(item.id_list) }
+        );
+        return cp_id_list;
+    }
+
+    $scope.selectedHoldingsVolCopyEdit = function (){
+        egCore.net.request(
+            'open-ils.actor',
+            'open-ils.actor.anon_cache.set_value',
+            null, 'edit-these-copies', {record_id: $scope.record_id, copies: gatherSelectedHoldingsIds() }
+        ).then(function(key) {
+            if (key) {
+                var url = egCore.env.basePath + 'cat/volcopy/' + key;
+                $timeout(function() { $window.open(url, '_blank') });
+            } else {
+                alert('Could not create anonymous cache key!');
+            }
+        });
+    }
+
+    $scope.selectedHoldingsItemStatus = function (){
+        var url = egCore.env.basePath + 'cat/item/search/' + gatherSelectedHoldingsIds().join(',')
+        $timeout(function() { $window.open(url, '_blank') });
+    }
+
+    $scope.selectedHoldingsItemStatusDetail = function (){
+        angular.forEach(
+            gatherSelectedHoldingsIds(),
+            function (cid) {
+                var url = egCore.env.basePath +
+                          'cat/item/' + cid;
+                $timeout(function() { $window.open(url, '_blank') });
+            }
+        );
+    }
+
+    $scope.selectedHoldingsItemStatusTgrEvt = function (){
+        angular.forEach(
+            gatherSelectedHoldingsIds(),
+            function (cid) {
+                var url = egCore.env.basePath +
+                          'cat/item/' + cid + '/triggered_events';
+                $timeout(function() { $window.open(url, '_blank') });
+            }
+        );
+    }
+
+    $scope.selectedHoldingsItemStatusHolds = function (){
+        angular.forEach(
+            gatherSelectedHoldingsIds(),
+            function (cid) {
+                var url = egCore.env.basePath +
+                          'cat/item/' + cid + '/holds';
+                $timeout(function() { $window.open(url, '_blank') });
+            }
+        );
+    }
+
+    $scope.selectedHoldingsDamaged = function () {
+        egCirc.mark_damaged(gatherSelectedHoldingsIds()).then(function() {
+            holdingsSvc.fetch({
+                rid : $scope.record_id,
+                org : $scope.holdings_ou,
+                copy: $scope.holdings_show_copies,
+                vol : $scope.holdings_show_vols,
+                empty: $scope.holdings_show_empty
+            }).then(function() {
+                $scope.holdingsGridDataProvider.refresh();
+            });
+        });
+    }
+
+    $scope.selectedHoldingsMissing = function () {
+        egCirc.mark_missing(gatherSelectedHoldingsIds()).then(function() {
+            holdingsSvc.fetch({
+                rid : $scope.record_id,
+                org : $scope.holdings_ou,
+                copy: $scope.holdings_show_copies,
+                vol : $scope.holdings_show_vols,
+                empty: $scope.holdings_show_empty
+            }).then(function() {
+                $scope.holdingsGridDataProvider.refresh();
+            });
+        });
+    }
+
+
+    // ------------------------------------------------------------------
     // Holds 
     var provider = egGridDataProvider.instance({});
     $scope.hold_grid_data_provider = provider;
     $scope.grid_actions = egHoldGridActions;
+    $scope.grid_actions.refresh = function () { provider.refresh() };
     $scope.hold_grid_controls = {};
 
     var hold_ids = []; // current list of holds
@@ -272,10 +506,23 @@ function($scope , $routeParams , $location , $q , egCore , egHolds,
         $scope.catalog_url = url;
     }
 
+    function init_parts_url() {
+        $scope.parts_url = $location
+            .absUrl()
+            .replace(
+                /\/staff.*/,
+                '/conify/global/biblio/monograph_part?r='+$scope.record_id
+            );
+    }
+
     $scope.set_record_tab = function(tab) {
         $scope.record_tab = tab;
 
         switch(tab) {
+
+            case 'monoparts':
+                init_parts_url();
+                break;
 
             case 'catalog':
                 init_cat_url();
@@ -292,16 +539,304 @@ function($scope , $routeParams , $location , $q , egCore , egHolds,
     $scope.set_default_record_tab = function() {
         egCore.hatch.setLocalItem(
             'eg.cat.default_record_tab', $scope.record_tab);
+        $timeout(function(){$scope.default_tab = $scope.record_tab});
     }
 
     var tab;
     if ($scope.record_id) {
-        var default_tab = egCore.hatch.getLocalItem( 'eg.cat.default_record_tab' );
-        tab = $routeParams.record_tab || default_tab || 'catalog';
+        $scope.default_tab = egCore.hatch.getLocalItem( 'eg.cat.default_record_tab' );
+        tab = $routeParams.record_tab || $scope.default_tab || 'catalog';
+
     } else {
         tab = $routeParams.record_tab || 'catalog';
     }
     $scope.set_record_tab(tab);
 
 }])
+
+.controller('URLVerifyCtrl',
+       ['$scope','$location',
+function($scope , $location) {
+    $scope.verifyurls_url = $location.absUrl().replace(/\/staff.*/, '/url_verify/sessions');
+}])
+
+.controller('VandelayCtrl',
+       ['$scope','$location',
+function($scope , $location) {
+    $scope.vandelay_url = $location.absUrl().replace(/\/staff.*/, '/vandelay/vandelay');
+}])
+
+.controller('ManageAuthoritiesCtrl',
+       ['$scope','$location',
+function($scope , $location) {
+    $scope.manageauthorities_url = $location.absUrl().replace(/\/staff.*/, '/cat/authority/list');
+}])
+
+.controller('BatchEditCtrl',
+       ['$scope','$location','$routeParams',
+function($scope , $location , $routeParams) {
+    $scope.batchedit_url = $location.absUrl().replace(/\/eg.*/, '/opac/extras/merge_template');
+    if ($routeParams.container_type) {
+        switch ($routeParams.container_type) {
+            case 'bucket':
+                $scope.batchedit_url += '?recordSource=b&containerid=' + $routeParams.container_id;
+                break;
+            case 'record':
+                $scope.batchedit_url += '?recordSource=r&recid=' + $routeParams.container_id;
+                break;
+        };
+    }
+}])
+
  
+.filter('boolText', function(){
+    return function (v) {
+        return v == 't';
+    }
+})
+
+.factory('holdingsSvc', 
+       ['egCore','$q',
+function(egCore , $q) {
+
+    var service = {
+        ongoing : false,
+        copies : [], // record search results
+        index : 0, // search grid index
+        org : null,
+        rid : null
+    };
+
+    service.flesh = {   
+        flesh : 2, 
+        flesh_fields : {
+            acp : ['status','location'],
+            acn : ['prefix','suffix','copies']
+        }
+    }
+
+    // resolved with the last received copy
+    service.fetch = function(opts) {
+        if (service.ongoing) {
+            console.log('Skipping fetch, ongoing = true');
+            return $q.when();
+        }
+
+        var rid = opts.rid;
+        var org = opts.org;
+        var copy = opts.copy;
+        var vol = opts.vol;
+        var empty = opts.empty;
+
+        if (!rid) return $q.when();
+        if (!org) return $q.when();
+
+        service.ongoing = true;
+
+        service.rid = rid;
+        service.org = org;
+        service.copies = [];
+        service.index = 0;
+
+        var org_list = egCore.org.descendants(org.id(), true);
+        console.log('Holdings fetch with: rid='+rid+' org='+org_list+' copy='+copy+' vol='+vol+' empty='+empty);
+
+        return egCore.pcrud.search(
+            'acn',
+            {record : rid, owning_lib : org_list, deleted : 'f'},
+            service.flesh
+        ).then(
+            function() { // finished
+                service.copies = service.copies.sort(
+                    function (a, b) {
+                        function compare_array (x, y, i) {
+                            if (x[i] && y[i]) { // both have values
+                                if (x[i] == y[i]) { // need to look deeper
+                                    return compare_array(x, y, ++i);
+                                }
+
+                                if (x[i] < y[i]) { // x is first
+                                    return -1;
+                                } else if (x[i] > y[i]) { // y is first
+                                    return 1;
+                                }
+
+                            } else { // no orgs to compare ...
+                                if (x[i]) return -1;
+                                if (y[i]) return 1;
+                            }
+                            return 0;
+                        }
+
+                        var owner_order = compare_array(a.owner_list, b.owner_list, 0);
+                        if (!owner_order) {
+                            // now compare on CN label
+                            if (a.call_number.label < b.call_number.label) return -1;
+                            if (a.call_number.label > b.call_number.label) return 1;
+
+                            // try copy number
+                            if (a.copy_number < b.copy_number) return -1;
+                            if (a.copy_number > b.copy_number) return 1;
+
+                            // finally, barcode
+                            if (a.barcode < b.barcode) return -1;
+                            if (a.barcode > b.barcode) return 1;
+                        }
+                        return owner_order;
+                    }
+                );
+
+                // create a label using just the unique part of the owner list
+                var index = 0;
+                var prev_owner_list;
+                angular.forEach(service.copies, function (cp) {
+                    if (!prev_owner_list) {
+                        cp.owner_label = cp.owner_list.join(' ... ');
+                    } else {
+                        var current_owner_list = cp.owner_list.slice();
+                        while (current_owner_list[1] && prev_owner_list[1] && current_owner_list[0] == prev_owner_list[0]) {
+                            current_owner_list.shift();
+                            prev_owner_list.shift();
+                        }
+                        cp.owner_label = current_owner_list.join(' ... ');
+                    }
+
+                    cp.index = index++;
+                    prev_owner_list = cp.owner_list.slice();
+                });
+
+                var new_list = service.copies;
+                if (!copy || !vol) { // collapse copy rows, supply a count instead
+
+                    index = 0;
+                    var cp_list = [];
+                    var prev_key;
+                    var current_blob = {};
+                    angular.forEach(new_list, function (cp) {
+                        if (!prev_key) {
+                            prev_key = cp.owner_list.join('') + cp.call_number.label;
+                            if (cp.barcode) current_blob.copy_count = 1;
+                            current_blob.index = index++;
+                            current_blob.id_list = cp.id_list;
+                            current_blob.call_number = cp.call_number;
+                            current_blob.owner_list = cp.owner_list;
+                            current_blob.owner_label = cp.owner_label;
+                        } else {
+                            var current_key = cp.owner_list.join('') + cp.call_number.label;
+                            if (prev_key == current_key) { // collapse into current_blob
+                                current_blob.copy_count++;
+                                current_blob.id_list = current_blob.id_list.concat(cp.id_list);
+                            } else {
+                                current_blob.barcode = current_blob.copy_count;
+                                cp_list.push(current_blob);
+                                prev_key = current_key;
+                                current_blob = {};
+                                if (cp.barcode) current_blob.copy_count = 1;
+                                current_blob.index = index++;
+                                current_blob.id_list = cp.id_list;
+                                current_blob.owner_label = cp.owner_label;
+                                current_blob.call_number = cp.call_number;
+                                current_blob.owner_list = cp.owner_list;
+                            }
+                        }
+                    });
+
+                    current_blob.barcode = current_blob.copy_count;
+                    cp_list.push(current_blob);
+                    new_list = cp_list;
+
+                    if (!vol) { // do the same for vol rows
+
+                        index = 0;
+                        var cn_list = [];
+                        prev_key = '';
+                        var current_blob = {};
+                        angular.forEach(cp_list, function (cp) {
+                            if (!prev_key) {
+                                prev_key = cp.owner_list.join('');
+                                current_blob.index = index++;
+                                current_blob.id_list = cp.id_list;
+                                current_blob.cn_count = 1;
+                                current_blob.copy_count = cp.copy_count;
+                                current_blob.owner_list = cp.owner_list;
+                                current_blob.owner_label = cp.owner_label;
+                            } else {
+                                var current_key = cp.owner_list.join('');
+                                if (prev_key == current_key) { // collapse into current_blob
+                                    current_blob.cn_count++;
+                                    current_blob.copy_count += cp.copy_count;
+                                    current_blob.id_list = current_blob.id_list.concat(cp.id_list);
+                                } else {
+                                    current_blob.barcode = current_blob.copy_count;
+                                    current_blob.call_number = { label : current_blob.cn_count };
+                                    cn_list.push(current_blob);
+                                    prev_key = current_key;
+                                    current_blob = {};
+                                    current_blob.index = index++;
+                                    current_blob.id_list = cp.id_list;
+                                    current_blob.owner_label = cp.owner_label;
+                                    current_blob.cn_count = 1;
+                                    current_blob.copy_count = cp.copy_count;
+                                    current_blob.owner_list = cp.owner_list;
+                                }
+                            }
+                        });
+    
+                        current_blob.barcode = current_blob.copy_count;
+                        current_blob.call_number = { label : current_blob.cn_count };
+                        cn_list.push(current_blob);
+                        new_list = cn_list;
+    
+                    }
+                }
+
+                service.copies = new_list;
+                service.ongoing = false;
+            },
+
+            null, // error
+
+            // notify reads the stream of copies, one at a time.
+            function(cn) {
+
+                var copies = cn.copies();
+                cn.copies([]);
+
+                angular.forEach(copies, function (cp) {
+                    cp.call_number(cn);
+                });
+
+                var flat = egCore.idl.toHash(copies);
+                if (flat[0]) {
+                    var owner = egCore.org.get(flat[0].call_number.owning_lib);
+
+                    var owner_name_list = [];
+                    while (owner.parent_ou()) { // we're going to skip the top of the tree...
+                        owner_name_list.unshift(owner.name());
+                        owner = egCore.org.get(owner.parent_ou());
+                    }
+
+                    angular.forEach(flat, function (cp) {
+                        cp.owner_list = owner_name_list;
+                        cp.id_list = [cp.id];
+                    });
+
+                    service.copies = service.copies.concat(flat);
+
+                    if (empty && flat.length == 0) {
+                        service.copies.push({
+                            owner_list : owner_name_list,
+                            call_number: egCore.idl.toHash(cn)
+                        });
+                    }
+                }
+
+                return cn;
+            }
+        );
+    }
+
+    return service;
+}])
+
+

@@ -31,9 +31,20 @@ angular.module('egGridMod',
 
             // comma-separated list of supported or disabled grid features
             // supported features:
+            //  startSelected : init the grid with all rows selected by default
+            //  -menu : don't show any menu buttons (or use space for them)
+            //  -picker : don't show the column picker
+            //  -pagination : don't show any pagination elements, and set
+            //                the limit to 1000
+            //  -actions : don't show the actions dropdown
+            //  -index : don't show the row index column (can't use "index"
+            //           as the idField in this case)
             //  -display : columns are hidden by default
             //  -sort    : columns are unsortable by default 
             //  -multisort : sort priorities config disabled by default
+            //  -multiselect : only one row at a time can be selected;
+            //                 choosing this also disables the checkbox
+            //                 column
             features : '@',
 
             // optional primary grid label
@@ -52,6 +63,13 @@ angular.module('egGridMod',
             //
             //  itemRetrieved     : function(item) {}
             //  allItemsRetrieved : function() {}
+            //
+            //  ---
+            //  If defined, the grid will watch the return value from
+            //  the function defined at watchQuery on each digest and 
+            //  re-draw the grid when query changes occur.
+            //
+            //  watchQuery : function() { /* return grid query */ }
             //
             //  ---------------
             //  These functions are defined by the grid and thus
@@ -99,8 +117,17 @@ angular.module('egGridMod',
                 $scope.showGridConf = false;
                 grid.totalCount = -1;
                 $scope.selected = {};
-                $scope.actions = []; // actions for selected items
+                $scope.actionGroups = [{actions:[]}]; // Grouped actions for selected items
                 $scope.menuItems = []; // global actions
+
+                $scope.showIndex = ($scope.features.indexOf('-index') == -1);
+
+                $scope.startSelected = $scope.selectAll = ($scope.features.indexOf('startSelected') > -1);
+                $scope.showActions = ($scope.features.indexOf('-actions') == -1);
+                $scope.showPagination = ($scope.features.indexOf('-pagination') == -1);
+                $scope.showPicker = ($scope.features.indexOf('-picker') == -1);
+
+                $scope.showMenu = ($scope.features.indexOf('-menu') == -1);
 
                 // remove some unneeded values from the scope to reduce bloat
 
@@ -111,11 +138,16 @@ angular.module('egGridMod',
                 delete $scope.persistKey;
 
                 var stored_limit = 0;
-                if (grid.persistKey) {
-                    var stored_limit = Number(
-                        egCore.hatch.getLocalItem('eg.grid.' + grid.persistKey + '.limit')
-                    );
+                if ($scope.showPagination) {
+                    if (grid.persistKey) {
+                        var stored_limit = Number(
+                            egCore.hatch.getLocalItem('eg.grid.' + grid.persistKey + '.limit')
+                        );
+                    }
+                } else {
+                    stored_limit = 10000; // maybe support "Inf"?
                 }
+
                 grid.limit = Number(stored_limit) || Number($scope.pageSize) || 25;
 
                 grid.indexField = $scope.idField;
@@ -136,6 +168,7 @@ angular.module('egGridMod',
                     defaultToNoSort : (features.indexOf('-sort') > -1),
                     defaultToNoMultiSort : (features.indexOf('-multisort') > -1)
                 });
+                $scope.canMultiSelect = (features.indexOf('-multiselect') == -1);
 
                 $scope.handleAutoFields = function() {
                     if ($scope.autoFields) {
@@ -214,6 +247,17 @@ angular.module('egGridMod',
                     controls.refresh();
                 }
 
+                if (controls.watchQuery) {
+                    // capture the initial query value
+                    grid.dataProvider.query = controls.watchQuery();
+
+                    // watch for changes
+                    $scope.gridWatchQuery = controls.watchQuery;
+                    $scope.$watch('gridWatchQuery()', function(newv) {
+                        controls.setQuery(newv);
+                    }, true);
+                }
+
                 // if the caller provided a functional setSort
                 // extract the value before replacing it
                 grid.dataProvider.sort = 
@@ -247,6 +291,16 @@ angular.module('egGridMod',
                 grid.controls = controls;
             }
 
+            // If a menu item provides its own HTML template, translate it,
+            // using the menu item for the template scope.
+            // note: $sce is required to avoid security restrictions and
+            // is OK here, since the template comes directly from a
+            // local HTML template (not user input).
+            $scope.translateMenuItemTemplate = function(item) {
+                var html = egCore.strings.$replace(item.template, {item : item});
+                return $sce.trustAsHtml(html);
+            }
+
             // add a new (global) grid menu item
             grid.addMenuItem = function(item) {
                 $scope.menuItems.push(item);
@@ -262,7 +316,19 @@ angular.module('egGridMod',
 
             // add a selected-items action
             grid.addAction = function(act) {
-                $scope.actions.push(act);
+                var done = false;
+                $scope.actionGroups.forEach(function(g){
+                    if (g.label === act.group) {
+                        g.actions.push(act);
+                        done = true;
+                    }
+                });
+                if (!done) {
+                    $scope.actionGroups.push({
+                        label : act.group,
+                        actions : [ act ]
+                    });
+                }
             }
 
             // remove the stored column configuration preferenc, then recover 
@@ -318,6 +384,7 @@ angular.module('egGridMod',
                     var c = {name : col.name}
                     // Apart from the name, only store non-default values.
                     // No need to store col.visible, since that's implicit
+                    if (col.align != 'left') c.align = col.align;
                     if (col.flex != 2) c.flex = col.flex;
                     if (Number(col.sort)) c.sort = Number(c.sort);
                     return c;
@@ -355,6 +422,7 @@ angular.module('egGridMod',
                             return;
                         }
 
+                        grid_col.align = col.align || 'left';
                         grid_col.flex = col.flex || 2;
                         grid_col.sort = col.sort || 0;
                         // all saved columns are assumed to be true
@@ -468,6 +536,14 @@ angular.module('egGridMod',
                     return false;
                 }
                 return action.hide(action);
+            }
+
+            // fires the disable handler function for a context action
+            $scope.actionDisable = function(action) {
+                if (!action.disabled) {
+                    return false;
+                }
+                return action.disabled(action);
             }
 
             // fires the action handler function for a context action
@@ -623,6 +699,12 @@ angular.module('egGridMod',
                 var index = grid.indexValue(item);
 
                 var origSelected = Object.keys($scope.selected);
+
+                if (!$scope.canMultiSelect) {
+                    grid.selectOneItem(index);
+                    grid.lastSelectedItemIndex = index;
+                    return;
+                }
 
                 if ($event.ctrlKey || $event.metaKey /* mac command */) {
                     // control-click
@@ -873,6 +955,8 @@ angular.module('egGridMod',
                         $scope.items.push(item)
                         if (grid.controls.itemRetrieved)
                             grid.controls.itemRetrieved(item);
+                        if ($scope.selectAll)
+                            $scope.selected[grid.indexValue(item)] = true
                     }
                 }).finally(function() { 
                     console.debug('egGrid.collect() complete');
@@ -900,6 +984,7 @@ angular.module('egGridMod',
             ignore: '@', // optional; fields to ignore when path is a wildcard
             label : '@', // optional; display label
             flex  : '@',  // optional; default flex width
+            align  : '@',  // optional; default alignment, left/center/right
             dateformat : '@', // optional: passed down to egGridValueFilter
 
             // if a field is part of an IDL object, but we are unable to
@@ -954,17 +1039,21 @@ angular.module('egGridMod',
         restrict : 'AE',
         transclude : true,
         scope : {
+            group   : '@', // Action group, ungrouped if not set
             label   : '@', // Action label
             handler : '=',  // Action function handler
             hide    : '=',
+            disabled : '=', // function
             divider : '='
         },
         link : function(scope, element, attrs, egGridCtrl) {
             egGridCtrl.addAction({
                 hide  : scope.hide,
+                group : scope.group,
                 label : scope.label,
                 divider : scope.divider,
-                handler : scope.handler
+                handler : scope.handler,
+                disabled : scope.disabled,
             });
             scope.$destroy();
         }
@@ -987,6 +1076,7 @@ angular.module('egGridMod',
         // template (i.e. the original egGridField values).
         cols.reset = function() {
             angular.forEach(cols.columns, function(col) {
+                col.align = 'left';
                 col.flex = 2;
                 col.sort = 0;
                 if (cols.stockVisible.indexOf(col.name) > -1) {
@@ -1116,7 +1206,7 @@ angular.module('egGridMod',
                         return;
 
                     var col = cols.cloneFromScope(colSpec);
-                    col.path = dotpath + '.' + field.name;
+                    col.path = (dotpath ? dotpath + '.' + field.name : field.name);
                     console.debug('egGrid: field: ' +field.name + '; parent field: ' + js2JSON(idl_field));
                     cols.add(col, false, true, 
                         {idl_parent : idl_field, idl_field : field, idl_class : class_obj});
@@ -1154,6 +1244,7 @@ angular.module('egGridMod',
                 name  : colSpec.name,
                 label : colSpec.label,
                 path  : colSpec.path,
+                align  : colSpec.align || 'left',
                 flex  : Number(colSpec.flex) || 2,
                 sort  : Number(colSpec.sort) || 0,
                 required : colSpec.required,
@@ -1566,6 +1657,9 @@ angular.module('egGridMod',
         require : '^egGrid',
         scope : {
             label : '@',  
+            checkbox : '@',  
+            checked : '=',  
+            standalone : '=',  
             handler : '=', // onclick handler function
             divider : '=', // if true, show a divider only
             handlerData : '=', // if set, passed as second argument to handler
@@ -1574,7 +1668,10 @@ angular.module('egGridMod',
         },
         link : function(scope, element, attrs, egGridCtrl) {
             egGridCtrl.addMenuItem({
+                checkbox : scope.checkbox,
+                checked : scope.checked ? true : false,
                 label : scope.label,
+                standalone : scope.standalone ? true : false,
                 handler : scope.handler,
                 divider : scope.divider,
                 disabled : scope.disabled,

@@ -1916,6 +1916,45 @@ sub import_record_asset_list_impl {
                 }
             }
 
+            if ($item->stat_cat_data) {
+                $logger->info("vl: parsing stat cat data: " . $item->stat_cat_data);
+                my @stat_cat_pairs = split('\|\|', $item->stat_cat_data);
+                my $stat_cat_entries = [];
+                # lookup stat cats
+                foreach my $stat_cat_pair (@stat_cat_pairs) {
+                    my ($stat_cat, $stat_cat_entry);
+                    my @pair_pieces = split('\|', $stat_cat_pair);
+                    if (@pair_pieces == 2) {
+                        $stat_cat = $e->search_asset_stat_cat({name=>$pair_pieces[0]})->[0];
+                        if ($stat_cat) {
+                            $stat_cat_entry = $e->search_asset_stat_cat_entry({'value' => $pair_pieces[1], 'stat_cat' => $stat_cat->id})->[0];
+                            push (@$stat_cat_entries, $stat_cat_entry) if $stat_cat_entry;
+                        }
+                    } else {
+                        $$report_args{import_error} = "import.item.invalid.stat_cat_format";
+                        last;
+                    }
+
+                    if (!$stat_cat or !$stat_cat_entry) {
+                        $$report_args{import_error} = "import.item.invalid.stat_cat_data";
+                        last;
+                    }
+                }
+                if ($$report_args{import_error}) {
+                    $logger->error("vl: invalid stat cat data: " . $item->stat_cat_data);
+                    respond_with_status($report_args);
+                    next;
+                }
+                $copy->stat_cat_entries( $stat_cat_entries );
+                $copy->ischanged(1);
+                $evt = OpenILS::Application::Cat::AssetCommon->update_copy_stat_entries($e, $copy, 0, 1); #delete_stats=0, add_or_update_only=1
+                if($evt) {
+                    $$report_args{evt} = $evt;
+                    respond_with_status($report_args);
+                    next;
+                }
+            }
+
             # set the import data on the import item
             $item->imported_as($copy->id); # $copy->id is set by create_copy() ^--
             $item->import_time('now');
